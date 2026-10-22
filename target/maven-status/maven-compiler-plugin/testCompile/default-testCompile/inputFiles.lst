@@ -1,5 +1,7 @@
-D:\workspace\ebook-system-project\src\test\java\com\kw\ebook\controller\EbookApiIntegrationTest.java
-D:\workspace\ebook-system-project\src\test\java\com\kw\ebook\entity\vo\BookTest.java
-D:\workspace\ebook-system-project\src\test\java\com\kw\ebook\entity\vo\LoanTest.java
-D:\workspace\ebook-system-project\src\test\java\com\kw\ebook\entity\vo\MemberTest.java
-D:\workspace\ebook-system-project\src\test\java\com\kw\ebook\service\LoanServiceHandlerTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\client\dto\DtoJsonTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\client\OzonApiClientSmokeTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\client\OzonCredentialProviderTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\exception\ApiErrorContractTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\service\impl\ProductServiceImplTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\service\impl\ShipmentServiceImplTest.java
+D:\workspace\ozon-erp-system\src\test\java\com\kw\erp\util\JsonUtilsTest.java

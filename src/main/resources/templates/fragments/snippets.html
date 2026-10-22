@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-CN">
+<body>
+<!-- 时间展示片段：LocalDateTime -> yyyy-MM-dd HH:mm:ss；配合 th:insert 使用，避免破坏表格结构 -->
+<span th:fragment="dt(value)"
+      th:text="${value == null} ? '—' : ${#strings.substring(#strings.replace(value.toString(), 'T', ' '), 0, 19)}">时间</span>
+
+<!-- 分页片段：page 为 MyBatis-Plus IPage，base 为不带查询串的列表地址，query 为附加参数串（形如 "&keyword=x"） -->
+<div th:fragment="pager(page, base, query)" class="pager"
+     th:if="${page != null and page.pages > 1}">
+    <span class="muted">
+        共 <b th:text="${page.total}">0</b> 条 ·
+        第 <b th:text="${page.current}">1</b> / <b th:text="${page.pages}">1</b> 页
+    </span>
+    <div class="pages">
+        <a th:if="${page.current > 1}"
+           th:href="${base + '?current=' + (page.current - 1) + '&size=' + page.size + query}">上一页</a>
+        <span th:unless="${page.current > 1}" class="cur" style="opacity:.5">上一页</span>
+        <a th:if="${page.current < page.pages}"
+           th:href="${base + '?current=' + (page.current + 1) + '&size=' + page.size + query}">下一页</a>
+        <span th:unless="${page.current < page.pages}" class="cur" style="opacity:.5">下一页</span>
+    </div>
+</div>
+</body>
+</html>

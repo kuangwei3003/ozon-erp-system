@@ -1,35 +1,31 @@
-server:
-  port: 8080
-  servlet:
-    context-path: /
-    encoding:
-      charset: UTF-8
-      enabled: true
-      force: true
-
 spring:
   application:
-    name: ebook-system
+    name: ozon-erp-system
   profiles:
     active: dev
   jackson:
-    date-format: yyyy-MM-dd HH:mm:ss
-    time-zone: GMT+8
+    # 接口返回 JSON 使用 snake_case，与 Ozon API 字段风格一致；空字段不输出
+    property-naming-strategy: SNAKE_CASE
     default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
 
-# Swagger（springdoc-openapi）配置
+server:
+  port: 8080
+
+# Ozon Seller API 配置：Client-Id / Api-Key 请填入你的密钥（也可用环境变量 OZON_CLIENT_ID / OZON_API_KEY 覆盖）
+ozon:
+  base-url: https://api-seller.ozon.ru
+  client-id: ${OZON_CLIENT_ID:your-client-id}
+  api-key: ${OZON_API_KEY:your-api-key}
+  connect-timeout-ms: 5000
+  read-timeout-ms: 30000
+  # 定时同步（默认关闭，各页面可手动点「同步」）
+  sync:
+    enabled: false
+    interval-ms: 1800000
+    initial-delay-ms: 60000
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-  api-docs:
-    path: /v3/api-docs
-
-# 日誌配置
-logging:
-  level:
-    root: INFO
-    com.kw: DEBUG
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('商品详情', 'products', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="panel">
+        <div class="filters">
+            <a class="btn ghost" th:href="@{/products}">← 返回列表</a>
+            <span style="flex:1"></span>
+            <a class="btn ghost" th:href="@{/price-stock(keyword=${product.offerId})}">查看价格库存</a>
+            <button type="button" id="btn-sync-attr" onclick="syncAttributes()">同步属性特征</button>
+        </div>
+
+        <table class="grid">
+            <tbody>
+            <tr>
+                <th style="width:160px">图片</th>
+                <td colspan="3">
+                    <img th:if="${product.primaryImage != null and !product.primaryImage.isEmpty()}"
+                         th:src="${product.primaryImage}" alt=""
+                         style="width:110px;height:110px;object-fit:cover;border-radius:6px">
+                    <span th:if="${product.primaryImage == null or product.primaryImage.isEmpty()}" class="muted">无图片</span>
+                </td>
+            </tr>
+            <tr>
+                <th>商品名称</th>
+                <td th:text="${product.name}"></td>
+                <th style="width:160px">offer_id</th>
+                <td class="mono" th:text="${product.offerId}"></td>
+            </tr>
+            <tr>
+                <th>SKU</th>
+                <td class="mono" th:text="${product.sku}"></td>
+                <th>货号（sku_code）</th>
+                <td class="mono" th:text="${product.skuCode}"></td>
+            </tr>
+            <tr>
+                <th>类目 ID</th>
+                <td th:text="${product.categoryId}"></td>
+                <th>类型 ID</th>
+                <td th:text="${product.typeId}"></td>
+            </tr>
+            <tr>
+                <th>品牌</th>
+                <td th:text="${product.brand}"></td>
+                <th>状态</th>
+                <td>
+                    <span class="badge"
+                          th:classappend="${product.status == 'purchase_available'} ? 'ok' : (${product.status == null} ? '' : 'warn')"
+                          th:text="${product.status != null} ? ${product.status} : '未知'"></span>
+                    <span class="badge info" th:if="${product.visibility != null}" th:text="${product.visibility}"></span>
+                </td>
+            </tr>
+            <tr>
+                <th>有库存</th>
+                <td th:text="${product.hasStock != null and product.hasStock == 1} ? '是' : '否'"></td>
+                <th>限制取消</th>
+                <td th:text="${product.limitCancel != null and product.limitCancel == 1} ? '是' : '否'"></td>
+            </tr>
+            <tr>
+                <th>同步时间</th>
+                <td th:insert="~{fragments/snippets :: dt(${product.syncedAt})}"></td>
+                <th>本地更新时间</th>
+                <td th:insert="~{fragments/snippets :: dt(${product.updatedAt})}"></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h3>属性与特征</h3>
+        <table class="grid" th:if="${!attributes.isEmpty()}">
+            <thead>
+            <tr>
+                <th>属性 ID</th>
+                <th>属性名称</th>
+                <th>值</th>
+                <th>complex_id</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="a : ${attributes}">
+                <td class="mono" th:text="${a.attributeId}"></td>
+                <td th:text="${a.attrName}"></td>
+                <td class="mono" th:text="${a.valueJson}"></td>
+                <td th:text="${a.complexId}"></td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${attributes.isEmpty()}">
+            尚未同步该商品的属性特征，可点击右上角「同步属性特征」（需要已配置 Ozon 密钥）。
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Ozon 原始报文</h3>
+        <pre class="raw" th:text="${product.rawJson != null} ? ${product.rawJson} : '（无）'"></pre>
+    </div>
+
+    <script th:inline="javascript">
+        const PRODUCT_SKU = /*[[${product.sku}]]*/ 0;
+
+        async function syncAttributes() {
+            const btn = document.getElementById('btn-sync-attr');
+            await erp.run(btn, '/api/attributes/sync', PRODUCT_SKU ? [PRODUCT_SKU] : []);
+        }
+    </script>
+</main>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('FBS / rFBS 订单', 'orders', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        列表数据来自本地表，请先「从 Ozon 同步」；同步默认回溯最近 90 天订单，并对前 300 单拉取明细（含商品行、金额、客户信息）。
+    </div>
+
+    <div class="panel">
+        <form class="filters" method="get" th:action="@{/orders}">
+            <input type="text" name="keyword" placeholder="订单号 / order_id" th:value="${keyword}">
+            <select name="scheme">
+                <option value="">全部模式</option>
+                <option value="fbs" th:selected="${scheme == 'fbs'}">FBS</option>
+                <option value="rfbs" th:selected="${scheme == 'rfbs'}">rFBS</option>
+            </select>
+            <select name="status">
+                <option value="">全部状态</option>
+                <option value="awaiting_registration" th:selected="${status == 'awaiting_registration'}">待登记</option>
+                <option value="awaiting_packaging" th:selected="${status == 'awaiting_packaging'}">待包装</option>
+                <option value="awaiting_deliver" th:selected="${status == 'awaiting_deliver'}">待交付</option>
+                <option value="delivering" th:selected="${status == 'delivering'}">运输中</option>
+                <option value="delivered" th:selected="${status == 'delivered'}">已送达</option>
+                <option value="cancellation_requested" th:selected="${status == 'cancellation_requested'}">申请取消</option>
+                <option value="cancelled" th:selected="${status == 'cancelled'}">已取消</option>
+            </select>
+            <button type="submit" class="ghost">筛选</button>
+            <span style="flex:1"></span>
+            <button type="button" id="btn-sync" onclick="syncOrders()">从 Ozon 同步</button>
+        </form>
+
+        <table class="grid" th:if="${!page.records.isEmpty()}">
+            <thead>
+            <tr>
+                <th>订单号</th>
+                <th>order_id</th>
+                <th>模式</th>
+                <th>状态</th>
+                <th>配送方式</th>
+                <th class="nowrap">计划发货</th>
+                <th class="nowrap">截止</th>
+                <th>运单号</th>
+                <th class="nowrap">同步时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="p : ${page.records}">
+                <td class="mono">
+                    <a th:href="@{'/orders/' + ${p.postingNumber}}" th:text="${p.postingNumber}"></a>
+                </td>
+                <td class="mono" th:text="${p.orderId}"></td>
+                <td>
+                    <span class="badge"
+                          th:classappend="${p.scheme == 'rfbs'} ? 'warn' : 'info'"
+                          th:text="${p.scheme != null} ? ${#strings.toUpperCase(p.scheme)} : '—'"></span>
+                </td>
+                <td>
+                    <span class="badge"
+                          th:classappend="${p.status == 'delivered'} ? 'ok'
+                                : (${p.status == 'cancelled' or p.status == 'delivery_cancelled'} ? 'bad'
+                                : (${p.status == 'cancellation_requested'} ? 'warn' : 'info'))"
+                          th:text="${p.status != null} ? ${p.status} : '未知'"></span>
+                    <div class="muted" th:if="${p.substatus != null}" th:text="${p.substatus}"></div>
+                </td>
+                <td th:text="${p.deliveryMethod}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${p.shipmentPlanDate})}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${p.deadlineDate})}"></td>
+                <td class="mono" th:text="${p.trackingNumber != null} ? ${p.trackingNumber} : '未录入'"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${p.syncedAt})}"></td>
+                <td>
+                    <div class="row-actions">
+                        <a class="btn ghost" th:href="@{'/orders/' + ${p.postingNumber}}">详情</a>
+                        <a class="btn ghost" th:href="@{/shipments}">运单</a>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${page.records.isEmpty()}">
+            暂无订单数据，请点击「从 Ozon 同步」。
+        </div>
+
+        <div th:with="q=${(keyword != null and !keyword.isEmpty() ? '&keyword=' + #uris.escapeQueryParam(keyword) : '')
+                      + (status != null and !status.isEmpty() ? '&status=' + #uris.escapeQueryParam(status) : '')
+                      + (scheme != null and !scheme.isEmpty() ? '&scheme=' + #uris.escapeQueryParam(scheme) : '')}">
+            <div th:replace="~{fragments/snippets :: pager(${page}, '/orders', ${q})}"></div>
+        </div>
+    </div>
+
+    <script th:inline="none">
+        async function syncOrders() {
+            const scheme = document.querySelector('select[name=scheme]').value;
+            const url = '/api/orders/sync' + (scheme ? '?scheme=' + encodeURIComponent(scheme) : '');
+            await erp.run(document.getElementById('btn-sync'), url, {}, {busyText: '同步中…'});
+        }
+    </script>
+</main>
+</body>
+</html>

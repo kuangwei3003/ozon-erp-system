@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('退货管理', 'returns', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="panel">
+        <form class="filters" method="get" th:action="@{/returns}">
+            <input type="text" name="keyword" placeholder="订单号 / offer_id / 商品名" th:value="${keyword}">
+            <select name="status">
+                <option value="">全部状态</option>
+                <option value="returns_not_started" th:selected="${status == 'returns_not_started'}">未开始</option>
+                <option value="approval_pending" th:selected="${status == 'approval_pending'}">待审核</option>
+                <option value="approved" th:selected="${status == 'approved'}">已批准</option>
+                <option value="seller_revenue_transfer" th:selected="${status == 'seller_revenue_transfer'}">待退款给卖家</option>
+                <option value="return_received" th:selected="${status == 'return_received'}">已收到退货</option>
+                <option value="return_not_received" th:selected="${status == 'return_not_received'}">未收到退货</option>
+                <option value="canceled" th:selected="${status == 'canceled'}">已取消</option>
+                <option value="completed" th:selected="${status == 'completed'}">已完成</option>
+            </select>
+            <button type="submit" class="ghost">筛选</button>
+            <span style="flex:1"></span>
+            <button type="button" id="btn-sync" onclick="syncReturns()">从 Ozon 同步</button>
+        </form>
+
+        <table class="grid" th:if="${!page.records.isEmpty()}">
+            <thead>
+            <tr>
+                <th>退货单号</th>
+                <th>订单号</th>
+                <th>商品</th>
+                <th>offer_id</th>
+                <th>状态</th>
+                <th>退货方式</th>
+                <th>原因</th>
+                <th>买家</th>
+                <th class="nowrap">退货日期</th>
+                <th class="nowrap">同步时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <th:block th:each="r : ${page.records}">
+            <tr>
+                <td class="mono" th:text="${r.returnId}"></td>
+                <td>
+                    <a class="mono" th:href="@{'/orders/' + ${r.postingNumber}}" th:text="${r.postingNumber}"></a>
+                </td>
+                <td th:text="${r.productName != null} ? ${r.productName} : '—'"></td>
+                <td class="mono" th:text="${r.offerId}"></td>
+                <td>
+                    <span class="badge"
+                          th:classappend="${r.status == 'completed' or r.status == 'return_received'} ? 'ok'
+                                        : (${r.status == 'canceled' or r.status == 'return_not_received'} ? 'bad' : 'warn')"
+                          th:text="${r.status != null} ? ${r.status} : '未知'"></span>
+                </td>
+                <td th:text="${r.returnMode}"></td>
+                <td th:text="${r.reasonType}"></td>
+                <td th:text="${r.customerName}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${r.returnDate})}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${r.syncedAt})}"></td>
+                <td><button type="button" class="ghost" onclick="toggleRaw(this)">明细</button></td>
+            </tr>
+            <tr class="raw-row" style="display:none">
+                <td colspan="11">
+                    <table class="kv">
+                        <tr>
+                            <th>待发货截止</th>
+                            <td th:insert="~{fragments/snippets :: dt(${r.awaitingDelivDeadline})}"></td>
+                            <th>决定日期</th>
+                            <td th:insert="~{fragments/snippets :: dt(${r.decisionDate})}"></td>
+                            <th>返利日期</th>
+                            <td th:insert="~{fragments/snippets :: dt(${r.rebateDate})}"></td>
+                        </tr>
+                    </table>
+                    <pre class="raw" th:text="${r.rawJson != null} ? ${r.rawJson} : '（无原始报文）'"></pre>
+                </td>
+            </tr>
+            </th:block>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${page.records.isEmpty()}">
+            暂无退货数据，请点击「从 Ozon 同步」。
+        </div>
+
+        <div th:with="q=${(keyword != null and !keyword.isEmpty() ? '&keyword=' + #uris.escapeQueryParam(keyword) : '')
+                      + (status != null and !status.isEmpty() ? '&status=' + #uris.escapeQueryParam(status) : '')}">
+            <div th:replace="~{fragments/snippets :: pager(${page}, '/returns', ${q})}"></div>
+        </div>
+    </div>
+
+    <script th:inline="none">
+        async function syncReturns() {
+            await erp.run(document.getElementById('btn-sync'), '/api/returns/sync');
+        }
+
+        function toggleRaw(button) {
+            const row = button.closest('tr');
+            const raw = row.nextElementSibling;
+            const hidden = raw.style.display === 'none' || raw.style.display === '';
+            raw.style.display = hidden ? 'table-row' : 'none';
+            button.textContent = hidden ? '收起' : '明细';
+        }
+    </script>
+</main>
+</body>
+</html>

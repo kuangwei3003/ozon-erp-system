@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('属性与特征', 'attributes', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        类目 / 属性模板 / 字典值均来自 Ozon 实时接口（<span class="mono">/v1/description-category/*</span>），上传商品时需要用这里的
+        <span class="mono">description_category_id</span>、<span class="mono">type_id</span>、<span class="mono">attribute_id</span> 与字典值 ID。
+    </div>
+
+    <div class="panel">
+        <h3>类目与属性模板</h3>
+        <div class="filters">
+            <button type="button" id="btn-tree" onclick="loadTree()">① 加载类目树</button>
+            <select id="sel-category" style="min-width:240px">
+                <option value="">（先加载类目树）</option>
+            </select>
+            <select id="sel-type" style="min-width:200px">
+                <option value="">（选择类目）</option>
+            </select>
+            <button type="button" id="btn-attr" onclick="loadAttributes()">② 查看属性模板</button>
+            <span style="flex:1"></span>
+            <button type="button" class="ghost" id="btn-sync" onclick="syncAll()">同步全部商品属性</button>
+        </div>
+
+        <div class="scroll-x">
+            <table class="grid" id="attr-table" style="display:none">
+                <thead>
+                <tr>
+                    <th>attribute_id</th>
+                    <th>名称</th>
+                    <th>类型</th>
+                    <th>必填</th>
+                    <th>字典</th>
+                    <th>complex_id</th>
+                    <th>说明</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="attr-empty">尚未加载属性模板。</div>
+    </div>
+
+    <div class="panel">
+        <h3>字典属性值</h3>
+        <div class="filters">
+            <span class="muted">当前属性：</span>
+            <span class="mono" id="dict-title">未选择</span>
+            <label class="field">last_id（翻页游标）
+                <input type="number" id="dict-last" value="0" style="width:120px">
+            </label>
+            <button type="button" id="btn-dict-more" onclick="loadDictValues(true)" disabled>加载更多</button>
+        </div>
+        <div class="scroll-x">
+            <table class="grid" id="dict-table" style="display:none">
+                <thead>
+                <tr>
+                    <th>dictionary_value_id</th>
+                    <th>值</th>
+                    <th>补充信息</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="dict-empty">点击属性模板中的「查字典值」查看可选值。</div>
+    </div>
+
+    <div class="panel">
+        <h3>已同步的商品属性（本地表）</h3>
+        <div class="filters">
+            <input type="number" id="q-product" placeholder="product_id 或 SKU" style="min-width:220px">
+            <button type="button" onclick="loadProductAttrs()">查询</button>
+            <span style="flex:1"></span>
+            <button type="button" class="ghost" id="btn-sync-one" onclick="syncOne()">同步指定 SKU</button>
+        </div>
+        <div class="scroll-x">
+            <table class="grid" id="local-table" style="display:none">
+                <thead>
+                <tr>
+                    <th>product_id</th>
+                    <th>SKU</th>
+                    <th>offer_id</th>
+                    <th>attribute_id</th>
+                    <th>名称</th>
+                    <th>值（JSON）</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="local-empty">输入 product_id / SKU 查询本地已同步的属性。</div>
+    </div>
+
+    <script th:inline="none">
+        let tree = [];
+        let currentTypes = [];
+        let dictContext = null;
+
+        function selCategoryNode() {
+            return tree[Number(document.getElementById('sel-category').value)] || null;
+        }
+
+        async function loadTree() {
+            const btn = document.getElementById('btn-tree');
+            btn.disabled = true;
+            btn.textContent = '加载中…';
+            try {
+                const data = await erp.get('/api/attributes/category-tree');
+                tree = (data && data.result) || [];
+                const sel = document.getElementById('sel-category');
+                sel.innerHTML = '<option value="">请选择类目</option>';
+                tree.forEach((node, index) => {
+                    const opt = document.createElement('option');
+                    opt.value = index;
+                    opt.textContent = (node.category_name || node.description_category_name || '类目')
+                        + '（#' + (node.description_category_id || node.category_id || '?') + '）';
+                    sel.appendChild(opt);
+                });
+                document.getElementById('sel-type').innerHTML = '<option value="">（选择类目）</option>';
+                if (tree.length === 0) {
+                    erp.toast('接口未返回类目数据', 'err');
+                }
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '① 加载类目树';
+            }
+        }
+
+        /** 递归收集带 type_id 的叶子节点 */
+        function collectTypes(node) {
+            const out = [];
+            const walk = (n) => {
+                if (n == null) {
+                    return;
+                }
+                if (Array.isArray(n)) {
+                    n.forEach(walk);
+                    return;
+                }
+                if (n.type_id != null) {
+                    out.push({
+                        type_id: n.type_id,
+                        type_name: n.type_name || n.name || ('type ' + n.type_id),
+                        description_category_id: n.description_category_id
+                            || node.description_category_id || node.category_id
+                    });
+                }
+                walk(n.children);
+            };
+            walk(node);
+            return out;
+        }
+
+        document.addEventListener('change', (e) => {
+            if (e.target.id !== 'sel-category') {
+                return;
+            }
+            const node = selCategoryNode();
+            currentTypes = node ? collectTypes(node) : [];
+            const sel = document.getElementById('sel-type');
+            sel.innerHTML = '<option value="">请选择类型</option>';
+            currentTypes.forEach((t, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = t.type_name + '（type_id=' + t.type_id + '）';
+                sel.appendChild(opt);
+            });
+        });
+
+        function currentContext() {
+            const node = selCategoryNode();
+            const typeIndex = document.getElementById('sel-type').value;
+            if (!node || typeIndex === '') {
+                return null;
+            }
+            const type = currentTypes[Number(typeIndex)];
+            const categoryId = type.description_category_id || node.description_category_id || node.category_id;
+            if (!categoryId || !type.type_id) {
+                return null;
+            }
+            return {categoryId: Number(categoryId), typeId: Number(type.type_id)};
+        }
+
+        async function loadAttributes() {
+            const ctx = currentContext();
+            if (!ctx) {
+                erp.toast('请先加载类目树并选择类目与类型', 'err');
+                return;
+            }
+            const btn = document.getElementById('btn-attr');
+            btn.disabled = true;
+            btn.textContent = '查询中…';
+            try {
+                const data = await erp.get('/api/attributes/category/' + ctx.categoryId + '/' + ctx.typeId);
+                renderAttributes((data && data.result) || []);
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '② 查看属性模板';
+            }
+        }
+
+        function renderAttributes(list) {
+            const tbody = document.querySelector('#attr-table tbody');
+            tbody.innerHTML = '';
+            list.forEach(a => {
+                const tr = document.createElement('tr');
+                tr.dataset.attrId = a.id;
+                tr.innerHTML = '<td class="mono">' + erp.escapeHtml(a.id) + '</td>'
+                    + '<td>' + erp.escapeHtml(a.name || '') + '</td>'
+                    + '<td><span class="badge">' + erp.escapeHtml(a.type || '—') + '</span></td>'
+                    + '<td>' + (a.is_required ? '<span class="badge bad">必填</span>' : '—') + '</td>'
+                    + '<td>' + (a.is_dictionary ? '<span class="badge info">字典</span>' : '—') + '</td>'
+                    + '<td class="mono">' + erp.escapeHtml(a.complex_id || '0') + '</td>'
+                    + '<td class="muted">' + erp.escapeHtml((a.description || a.hint || '')).substring(0, 120) + '</td>'
+                    + '<td>' + (a.is_dictionary
+                        ? '<button type="button" class="ghost" onclick="openDict(this)">查字典值</button>'
+                        : '') + '</td>';
+                tbody.appendChild(tr);
+            });
+            document.getElementById('attr-table').style.display = list.length ? '' : 'none';
+            document.getElementById('attr-empty').textContent = list.length ? '' : '该类目未返回属性定义。';
+            document.getElementById('attr-empty').style.display = list.length ? 'none' : 'block';
+        }
+
+        function openDict(button) {
+            const ctx = currentContext();
+            const tr = button.closest('tr');
+            dictContext = {attrId: Number(tr.dataset.attrId), categoryId: ctx.categoryId, typeId: ctx.typeId};
+            document.getElementById('dict-title').textContent =
+                'attribute_id=' + dictContext.attrId + ' · category=' + dictContext.categoryId + ' · type=' + dictContext.typeId;
+            document.getElementById('dict-last').value = 0;
+            document.getElementById('btn-dict-more').disabled = false;
+            document.querySelector('#dict-table tbody').innerHTML = '';
+            loadDictValues(false);
+        }
+
+        async function loadDictValues(append) {
+            if (!dictContext) {
+                return;
+            }
+            if (!append) {
+                document.getElementById('dict-last').value = 0;
+            }
+            const lastId = Number(document.getElementById('dict-last').value) || 0;
+            const url = '/api/attributes/values?attr_id=' + dictContext.attrId
+                + '&category_id=' + dictContext.categoryId
+                + '&type_id=' + dictContext.typeId
+                + '&last_id=' + lastId;
+            try {
+                const data = await erp.get(url);
+                const result = (data && data.result) || {};
+                const values = result.values || [];
+                const tbody = document.querySelector('#dict-table tbody');
+                if (!append) {
+                    tbody.innerHTML = '';
+                }
+                values.forEach(v => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td class="mono">' + erp.escapeHtml(v.id) + '</td>'
+                        + '<td>' + erp.escapeHtml(v.value || '') + '</td>'
+                        + '<td class="muted">' + erp.escapeHtml(v.info || '') + '</td>';
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('dict-table').style.display = values.length ? '' : 'none';
+                document.getElementById('dict-empty').textContent = values.length
+                    ? ('本页 ' + values.length + ' 条' + (result.has_next ? '，仍有更多数据' : '，已全部加载'))
+                    : '该属性暂无字典值。';
+                if (values.length > 0 && result.has_next) {
+                    document.getElementById('dict-last').value = values[values.length - 1].id;
+                } else {
+                    document.getElementById('btn-dict-more').disabled = true;
+                }
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            }
+        }
+
+        async function syncAll() {
+            await erp.run(document.getElementById('btn-sync'), '/api/attributes/sync', [], {busyText: '同步中…'});
+        }
+
+        async function syncOne() {
+            const sku = Number(document.getElementById('q-product').value);
+            if (!sku) {
+                erp.toast('请在下方输入框填写要同步的 SKU', 'err');
+                return;
+            }
+            await erp.run(document.getElementById('btn-sync-one'), '/api/attributes/sync', [sku], {busyText: '同步中…'});
+        }
+
+        async function loadProductAttrs() {
+            const id = Number(document.getElementById('q-product').value);
+            if (!id) {
+                erp.toast('请输入 product_id 或 SKU', 'err');
+                return;
+            }
+            try {
+                const list = await erp.get('/api/attributes/product/' + id);
+                const tbody = document.querySelector('#local-table tbody');
+                tbody.innerHTML = '';
+                list.forEach(a => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td class="mono">' + erp.escapeHtml(a.productId) + '</td>'
+                        + '<td class="mono">' + erp.escapeHtml(a.sku) + '</td>'
+                        + '<td class="mono">' + erp.escapeHtml(a.offerId) + '</td>'
+                        + '<td class="mono">' + erp.escapeHtml(a.attributeId) + '</td>'
+                        + '<td>' + erp.escapeHtml(a.attrName) + '</td>'
+                        + '<td class="mono">' + erp.escapeHtml(a.valueJson) + '</td>';
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('local-table').style.display = list.length ? '' : 'none';
+                document.getElementById('local-empty').textContent = list.length ? '' : '本地没有该商品的属性记录，请先同步。';
+                document.getElementById('local-empty').style.display = list.length ? 'none' : 'block';
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            }
+        }
+    </script>
+</main>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('订单详情', 'orders', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="panel">
+        <div class="filters">
+            <a class="btn ghost" th:href="@{/orders}">← 返回列表</a>
+            <span style="flex:1"></span>
+            <button type="button" class="ghost" id="btn-remote" onclick="loadRemote()">拉取 Ozon 实时报文</button>
+            <button type="button" class="ghost" id="btn-label" onclick="getLabel()">获取包装标签</button>
+            <button type="button" class="danger" th:if="${posting.status != 'cancelled' and posting.status != 'delivered'}"
+                    onclick="openCancel()">取消订单</button>
+        </div>
+
+        <table class="kv" th:if="${posting != null}">
+            <tr>
+                <th>订单号</th>
+                <td class="mono" th:text="${posting.postingNumber}"></td>
+                <th>order_id</th>
+                <td class="mono" th:text="${posting.orderId}"></td>
+                <th>模式</th>
+                <td th:text="${posting.scheme != null} ? ${#strings.toUpperCase(posting.scheme)} : '—'"></td>
+            </tr>
+            <tr>
+                <th>状态</th>
+                <td>
+                    <span class="badge"
+                          th:classappend="${posting.status == 'delivered'} ? 'ok'
+                                : (${posting.status == 'cancelled' or posting.status == 'delivery_cancelled'} ? 'bad' : 'info')"
+                          th:text="${posting.status != null} ? ${posting.status} : '未知'"></span>
+                </td>
+                <th>子状态</th>
+                <td th:text="${posting.substatus}"></td>
+                <th>运单号</th>
+                <td class="mono" th:text="${posting.trackingNumber != null} ? ${posting.trackingNumber} : '未录入'"></td>
+            </tr>
+            <tr>
+                <th>配送方式</th>
+                <td colspan="3" th:text="${posting.deliveryMethod}"></td>
+                <th>仓库 ID</th>
+                <td th:text="${posting.warehouseId}"></td>
+            </tr>
+            <tr>
+                <th>订单创建</th>
+                <td th:insert="~{fragments/snippets :: dt(${posting.createdAt})}"></td>
+                <th>计划发货</th>
+                <td th:insert="~{fragments/snippets :: dt(${posting.shipmentPlanDate})}"></td>
+                <th>发货截止</th>
+                <td th:insert="~{fragments/snippets :: dt(${posting.deadlineDate})}"></td>
+            </tr>
+            <tr>
+                <th>取消原因</th>
+                <td colspan="3" th:text="${posting.cancelReason != null} ? ${posting.cancelReason} : '—'"></td>
+                <th>本地同步</th>
+                <td th:insert="~{fragments/snippets :: dt(${posting.syncedAt})}"></td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="panel">
+        <h3>商品行</h3>
+        <div class="scroll-x">
+            <table class="grid" id="products-table" style="display:none">
+                <thead>
+                <tr>
+                    <th>商品名称</th>
+                    <th>offer_id</th>
+                    <th>SKU</th>
+                    <th>数量</th>
+                    <th>单价</th>
+                    <th>结算价</th>
+                    <th>原价</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="products-empty">本地未存储商品行，可点击「拉取 Ozon 实时报文」查看完整数据。</div>
+    </div>
+
+    <div class="split">
+        <div class="panel">
+            <h3>客户信息</h3>
+            <div id="customer-box" class="muted">—</div>
+        </div>
+        <div class="panel">
+            <h3>财务与条码</h3>
+            <div id="finance-box" class="muted">—</div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h3>Ozon 实时报文</h3>
+        <pre class="raw" id="remote-box">（未拉取）</pre>
+    </div>
+
+    <!-- 取消订单弹层 -->
+    <div class="modal" id="cancel-modal">
+        <div class="box">
+            <h3>取消订单</h3>
+            <div id="reason-list" class="muted">正在加载可选取消原因…</div>
+            <label class="field" style="margin-top:10px">补充说明
+                <textarea id="cancel-message" rows="3" placeholder="部分原因要求填写说明"></textarea>
+            </label>
+            <div class="filters" style="margin-top:12px">
+                <button type="button" id="btn-do-cancel" onclick="doCancel()">确认取消订单</button>
+                <button type="button" class="ghost" onclick="closeCancel()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        const POSTING_NUMBER = /*[[${postingNumber}]]*/ '';
+        const PRODUCTS_JSON = /*[[${posting.productsJson}]]*/ null;
+        const CUSTOMER_JSON = /*[[${posting.customerJson}]]*/ null;
+        const FINANCE_JSON = /*[[${posting.financialDataJson}]]*/ null;
+        const BARCODES_JSON = /*[[${posting.barcodesJson}]]*/ null;
+
+        function parse(json) {
+            if (!json) {
+                return null;
+            }
+            try {
+                return JSON.parse(json);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function renderProducts() {
+            const list = parse(PRODUCTS_JSON);
+            if (!Array.isArray(list) || list.length === 0) {
+                return;
+            }
+            const tbody = document.querySelector('#products-table tbody');
+            list.forEach(p => {
+                tbody.appendChild(productRow(p));
+            });
+            document.getElementById('products-table').style.display = '';
+            document.getElementById('products-empty').style.display = 'none';
+        }
+
+        function productRow(p) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + erp.escapeHtml(p.name == null ? '—' : p.name) + '</td>'
+                + [p.offer_id, p.sku, p.quantity, p.price, p.in_price, p.old_price]
+                    .map(v => '<td class="mono">' + erp.escapeHtml(v == null ? '—' : v) + '</td>')
+                    .join('');
+            return tr;
+        }
+
+        /** 把对象/数组渲染为 key-value 列表 */
+        function kvHtml(value) {
+            if (value == null) {
+                return '—';
+            }
+            if (Array.isArray(value)) {
+                return value.map(kvHtml).join('<hr style="border:none;border-top:1px solid var(--line)">');
+            }
+            if (typeof value !== 'object') {
+                return erp.escapeHtml(value);
+            }
+            return Object.keys(value).map(k => {
+                const v = value[k];
+                const text = (v !== null && typeof v === 'object') ? JSON.stringify(v) : erp.escapeHtml(v == null ? '—' : v);
+                return '<div style="display:flex;gap:8px;margin-bottom:4px">'
+                    + '<span class="muted" style="min-width:150px">' + erp.escapeHtml(k) + '</span>'
+                    + '<span class="mono">' + text + '</span></div>';
+            }).join('');
+        }
+
+        function renderDetails() {
+            document.getElementById('customer-box').innerHTML = kvHtml(parse(CUSTOMER_JSON));
+            const parts = [];
+            const finance = parse(FINANCE_JSON);
+            if (finance) {
+                parts.push('<div style="font-weight:600;margin-bottom:4px">financial_data</div>', kvHtml(finance));
+            }
+            const barcodes = parse(BARCODES_JSON);
+            if (barcodes) {
+                parts.push('<div style="font-weight:600;margin:8px 0 4px">barcodes</div>', kvHtml(barcodes));
+            }
+            const box = document.getElementById('finance-box');
+            box.innerHTML = parts.length ? parts.join('') : '—';
+        }
+
+        async function loadRemote() {
+            const btn = document.getElementById('btn-remote');
+            btn.disabled = true;
+            btn.textContent = '拉取中…';
+            try {
+                const data = await erp.get('/api/orders/remote/' + encodeURIComponent(POSTING_NUMBER));
+                erp.fill('remote-box', data);
+                const result = data && data.result ? data.result : {};
+                if (Array.isArray(result.products)) {
+                    const tbody = document.querySelector('#products-table tbody');
+                    tbody.innerHTML = '';
+                    result.products.forEach(p => tbody.appendChild(productRow(p)));
+                    document.getElementById('products-table').style.display = '';
+                    document.getElementById('products-empty').style.display = 'none';
+                }
+                document.getElementById('customer-box').innerHTML = kvHtml(result.customer);
+                document.getElementById('finance-box').innerHTML =
+                    kvHtml(result.financial_data) + '<hr style="border:none;border-top:1px solid var(--line)">'
+                    + kvHtml(result.barcodes);
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '拉取 Ozon 实时报文';
+            }
+        }
+
+        async function getLabel() {
+            const btn = document.getElementById('btn-label');
+            await erp.run(btn, '/api/shipments/label', {posting_number: [POSTING_NUMBER]}, {
+                reload: false,
+                busyText: '生成中…',
+                render: (data) => {
+                    erp.fill('remote-box', data);
+                    const pdf = data && data.result && data.result.pdf;
+                    if (pdf) {
+                        erp.downloadBase64(pdf, POSTING_NUMBER + '.pdf');
+                        erp.toast('标签已生成，正在下载 PDF', 'ok');
+                    } else {
+                        erp.toast('接口已返回，请在实时报文面板查看结果', 'ok');
+                    }
+                }
+            });
+        }
+
+        async function openCancel() {
+            document.getElementById('cancel-modal').classList.add('show');
+            const box = document.getElementById('reason-list');
+            box.textContent = '正在加载可选取消原因…';
+            try {
+                const data = await erp.get('/api/orders/' + encodeURIComponent(POSTING_NUMBER) + '/cancel-reasons');
+                const reasons = (data && data.result) || [];
+                if (reasons.length === 0) {
+                    box.textContent = '该订单没有可用的取消原因（可能已不可取消）。';
+                    return;
+                }
+                box.innerHTML = reasons.map((r, i) =>
+                    '<label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px">'
+                    + '<input type="radio" name="reason" value="' + r.id + '" data-msg="' + (r.need_comment_for_seller ? 1 : 0)
+                    + '"' + (i === 0 ? ' checked' : '') + ' style="margin-top:4px">'
+                    + '<span><b>' + erp.escapeHtml(r.title) + '</b>'
+                    + '<div class="muted">' + erp.escapeHtml(r.description || '') + '</div></span></label>'
+                ).join('');
+            } catch (e) {
+                box.textContent = '加载失败：' + e.message;
+            }
+        }
+
+        function closeCancel() {
+            document.getElementById('cancel-modal').classList.remove('show');
+        }
+
+        async function doCancel() {
+            const checked = document.querySelector('input[name=reason]:checked');
+            if (!checked) {
+                erp.toast('请选择取消原因', 'err');
+                return;
+            }
+            const message = document.getElementById('cancel-message').value.trim();
+            if (checked.dataset.msg === '1' && !message) {
+                erp.toast('该原因要求填写补充说明', 'err');
+                return;
+            }
+            const body = {
+                posting_number: POSTING_NUMBER,
+                cancel_reason_id: Number(checked.value),
+                cancel_reason_message: message || undefined
+            };
+            const btn = document.getElementById('btn-do-cancel');
+            btn.disabled = true;
+            btn.textContent = '提交中…';
+            try {
+                const data = await erp.post('/api/orders/cancel', body);
+                erp.fill('remote-box', data);
+                erp.toast('已提交取消申请', 'ok');
+                closeCancel();
+                setTimeout(() => location.reload(), 900);
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '确认取消订单';
+            }
+        }
+
+        renderProducts();
+        renderDetails();
+    </script>
+</main>
+</body>
+</html>

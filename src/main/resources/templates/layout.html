@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-CN" th:fragment="layout(title, active, content)">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title} + ' · Ozon 店铺管理 ERP'">Ozon 店铺管理 ERP</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<div class="layout">
+    <aside class="sidebar">
+        <div class="brand">Ozon ERP</div>
+        <nav>
+            <a th:href="@{/}" th:classappend="${active == 'dashboard'} ? 'active'">仪表盘</a>
+            <div class="nav-group">商品</div>
+            <a th:href="@{/products}" th:classappend="${active == 'products'} ? 'active'">商品管理</a>
+            <a th:href="@{/products/upload}" th:classappend="${active == 'productUpload'} ? 'active'">上传/更新商品</a>
+            <a th:href="@{/price-stock}" th:classappend="${active == 'priceStock'} ? 'active'">价格与库存</a>
+            <a th:href="@{/attributes}" th:classappend="${active == 'attributes'} ? 'active'">属性与特征</a>
+            <div class="nav-group">订单与履约</div>
+            <a th:href="@{/orders}" th:classappend="${active == 'orders'} ? 'active'">FBS / rFBS 订单</a>
+            <a th:href="@{/shipments}" th:classappend="${active == 'shipments'} ? 'active'">运单处理</a>
+            <a th:href="@{/returns}" th:classappend="${active == 'returns'} ? 'active'">退货管理</a>
+            <div class="nav-group">客户与资金</div>
+            <a th:href="@{/chats}" th:classappend="${active == 'chats'} ? 'active'">聊天管理</a>
+            <a th:href="@{/finance}" th:classappend="${active == 'finance'} ? 'active'">财务与分析</a>
+            <div class="nav-group">系统</div>
+            <a th:href="@{/settings}" th:classappend="${active == 'settings'} ? 'active'">店铺设置</a>
+        </nav>
+    </aside>
+
+    <div class="main">
+        <header class="topbar">
+            <h1 th:text="${title}">页面</h1>
+            <div>
+                <span th:if="${ozonReady}" class="badge ok">密钥已配置</span>
+                <a th:unless="${ozonReady}" th:href="@{/settings}" class="badge bad">未配置 Ozon 密钥，点此设置</a>
+            </div>
+        </header>
+        <div class="content">
+            <div th:replace="${content}">页面内容</div>
+        </div>
+    </div>
+</div>
+
+<div id="erp-toast" class="toast"></div>
+<script th:src="@{/js/app.js}"></script>
+</body>
+</html>

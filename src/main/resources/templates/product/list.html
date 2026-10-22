@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('商品管理', 'products', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="panel">
+        <form class="filters" method="get" th:action="@{/products}">
+            <input type="text" name="keyword" placeholder="商品名称 / offer_id" th:value="${keyword}">
+            <select name="status">
+                <option value="">全部状态</option>
+                <option value="purchase_available" th:selected="${status == 'purchase_available'}">在售</option>
+                <option value="expired" th:selected="${status == 'expired'}">已过期</option>
+                <option value="inactive" th:selected="${status == 'inactive'}">未激活</option>
+            </select>
+            <button type="submit" class="ghost">筛选</button>
+            <a class="btn ghost" th:href="@{/products/upload}">上传/更新商品</a>
+            <span style="flex:1"></span>
+            <button type="button" id="btn-sync" onclick="syncProducts()">从 Ozon 同步</button>
+        </form>
+
+        <table class="grid" th:if="${!page.records.isEmpty()}">
+            <thead>
+            <tr>
+                <th>图片</th>
+                <th>商品名称</th>
+                <th>offer_id</th>
+                <th>SKU</th>
+                <th>品牌</th>
+                <th>状态</th>
+                <th class="nowrap">同步时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="p : ${page.records}">
+                <td>
+                    <img th:if="${p.primaryImage != null and !p.primaryImage.isEmpty()}"
+                         th:src="${p.primaryImage}" alt="" style="width:40px;height:40px;object-fit:cover;border-radius:4px">
+                    <span th:if="${p.primaryImage == null or p.primaryImage.isEmpty()}" class="muted">—</span>
+                </td>
+                <td><a th:href="@{'/products/' + ${p.id}}" th:text="${p.name}"></a></td>
+                <td class="mono" th:text="${p.offerId}"></td>
+                <td class="mono" th:text="${p.sku}"></td>
+                <td th:text="${p.brand}"></td>
+                <td>
+                    <span class="badge"
+                          th:classappend="${p.status == 'purchase_available'} ? 'ok' : (${p.status == null} ? '' : 'warn')"
+                          th:text="${p.status != null} ? ${p.status} : '未知'">状态</span>
+                </td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${p.syncedAt})}"></td>
+                <td>
+                    <div class="row-actions">
+                        <a class="btn ghost" th:href="@{'/products/' + ${p.id}}">详情</a>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${page.records.isEmpty()}">
+            本地暂无商品数据，点击右上角「从 Ozon 同步」。
+        </div>
+
+        <div th:with="q=${(keyword != null and !keyword.isEmpty() ? '&keyword=' + #uris.escapeQueryParam(keyword) : '')
+                      + (status != null and !status.isEmpty() ? '&status=' + #uris.escapeQueryParam(status) : '')}">
+            <div th:replace="~{fragments/snippets :: pager(${page}, '/products', ${q})}"></div>
+        </div>
+    </div>
+
+    <script th:inline="none">
+        function syncProducts() {
+            erp.run(document.getElementById('btn-sync'), '/api/products/sync');
+        }
+    </script>
+</main>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('运单处理', 'shipments', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        待处理订单为本地表中状态属于 <span class="mono">awaiting_packaging / awaiting_deliver / awaiting_registration</span> 的 FBS / rFBS 订单；
+        录入运单号会调用 <span class="mono">/v5/posting/fbs/set-tracked</span> 并同步更新本地记录。标签接口返回 base64 PDF，浏览器会自动下载。
+    </div>
+
+    <div class="panel">
+        <div class="filters">
+            <h3 style="margin:0;flex:1">需填运单号的订单</h3>
+            <button type="button" id="btn-sync" onclick="syncOrders()">同步订单</button>
+            <button type="button" id="btn-tracking" onclick="saveTracking()">批量保存运单号</button>
+            <button type="button" class="ghost" id="btn-label-all" onclick="downloadLabels()">下载选中订单标签</button>
+        </div>
+
+        <table class="grid" th:if="${!postings.isEmpty()}">
+            <thead>
+            <tr>
+                <th style="width:40px">选择</th>
+                <th>订单号</th>
+                <th>模式</th>
+                <th>状态</th>
+                <th>配送方式</th>
+                <th class="nowrap">计划发货</th>
+                <th>当前运单号</th>
+                <th style="width:200px">新运单号</th>
+                <th>标签</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="p : ${postings}" th:data-posting="${p.postingNumber}">
+                <td><input type="checkbox" class="sel"></td>
+                <td class="mono">
+                    <a th:href="@{'/orders/' + ${p.postingNumber}}" th:text="${p.postingNumber}"></a>
+                </td>
+                <td><span class="badge" th:text="${p.scheme != null} ? ${#strings.toUpperCase(p.scheme)} : '—'"></span></td>
+                <td><span class="badge warn" th:text="${p.status}"></span></td>
+                <td th:text="${p.deliveryMethod}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${p.shipmentPlanDate})}"></td>
+                <td class="mono" th:text="${p.trackingNumber != null} ? ${p.trackingNumber} : '—'"></td>
+                <td><input type="text" class="in-tracking" th:value="${p.trackingNumber}" placeholder="承运商运单号"></td>
+                <td>
+                    <div class="row-actions">
+                        <button type="button" class="ghost" onclick="downloadOne(this)">获取标签</button>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${postings.isEmpty()}">
+            当前没有需要处理的订单，可点击「同步订单」从 Ozon 拉取最新状态。
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="filters">
+            <h3 style="margin:0;flex:1">卖家仓库</h3>
+            <button type="button" id="btn-warehouse" onclick="loadWarehouses()">加载仓库列表</button>
+        </div>
+        <div class="scroll-x">
+            <table class="grid" id="warehouse-table" style="display:none">
+                <thead>
+                <tr>
+                    <th>warehouse_id</th>
+                    <th>名称</th>
+                    <th>状态</th>
+                    <th>office_id</th>
+                    <th>是否可改</th>
+                    <th>地址</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="warehouse-empty">点击上方按钮从 Ozon 读取仓库（更新库存时需要用到 warehouse_id）。</div>
+    </div>
+
+    <script th:inline="none">
+        async function syncOrders() {
+            await erp.run(document.getElementById('btn-sync'), '/api/orders/sync', {}, {busyText: '同步中…'});
+        }
+
+        function rows() {
+            return Array.from(document.querySelectorAll('table.grid tbody tr[data-posting]'));
+        }
+
+        async function saveTracking() {
+            const postings = [];
+            rows().forEach(tr => {
+                const value = tr.querySelector('.in-tracking').value.trim();
+                const original = tr.children[6].textContent.trim();
+                if (value && value !== original) {
+                    postings.push({posting_number: tr.dataset.posting, tracking_number: value});
+                }
+            });
+            if (postings.length === 0) {
+                erp.toast('没有检测到变更的运单号（请填写与「当前运单号」不同的值）', 'err');
+                return;
+            }
+            await erp.run(document.getElementById('btn-tracking'), '/api/shipments/tracking', {postings: postings},
+                {busyText: '提交中…', successText: '已提交 ' + postings.length + ' 个运单号'});
+        }
+
+        function selectedPostings() {
+            return rows().filter(tr => tr.querySelector('.sel').checked).map(tr => tr.dataset.posting);
+        }
+
+        function labelPayload(pdfHandler) {
+            return (data) => {
+                const pdf = data && data.result && data.result.pdf;
+                if (pdf) {
+                    pdfHandler(pdf);
+                } else {
+                    erp.toast('接口已返回但没有 PDF 内容，请检查订单状态', 'err');
+                    console.log(data);
+                }
+            };
+        }
+
+        async function downloadLabels() {
+            const list = selectedPostings();
+            if (list.length === 0) {
+                erp.toast('请先勾选订单', 'err');
+                return;
+            }
+            await erp.run(document.getElementById('btn-label-all'), '/api/shipments/label', {posting_number: list}, {
+                reload: false,
+                busyText: '生成中…',
+                render: labelPayload((pdf) => {
+                    erp.downloadBase64(pdf, 'ozon-labels-' + list.length + '.pdf');
+                    erp.toast('标签已下载', 'ok');
+                })
+            });
+        }
+
+        async function downloadOne(button) {
+            const posting = button.closest('tr').dataset.posting;
+            await erp.run(button, '/api/shipments/label', {posting_number: [posting]}, {
+                reload: false,
+                busyText: '生成中…',
+                render: labelPayload((pdf) => {
+                    erp.downloadBase64(pdf, posting + '.pdf');
+                    erp.toast('标签已下载：' + posting, 'ok');
+                })
+            });
+        }
+
+        async function loadWarehouses() {
+            const btn = document.getElementById('btn-warehouse');
+            btn.disabled = true;
+            btn.textContent = '加载中…';
+            try {
+                const data = await erp.get('/api/shipments/warehouses');
+                const list = (data && data.result) || [];
+                const tbody = document.querySelector('#warehouse-table tbody');
+                tbody.innerHTML = '';
+                list.forEach(w => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td class="mono">' + erp.escapeHtml(w.warehouse_id) + '</td>'
+                        + '<td>' + erp.escapeHtml(w.name || '') + '</td>'
+                        + '<td><span class="badge">' + erp.escapeHtml(w.status || '—') + '</span></td>'
+                        + '<td class="mono">' + erp.escapeHtml(w.office_id == null ? '—' : w.office_id) + '</td>'
+                        + '<td>' + (w.is_updated_allowed ? '是' : '否') + '</td>'
+                        + '<td class="muted">' + erp.escapeHtml(w.address || (w.derivaler_address ? JSON.stringify(w.derivaler_address) : '')) + '</td>';
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('warehouse-empty').textContent = list.length ? '' : '未返回仓库数据。';
+                document.getElementById('warehouse-table').style.display = list.length ? '' : 'none';
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '加载仓库列表';
+            }
+        }
+    </script>
+</main>
+</body>
+</html>

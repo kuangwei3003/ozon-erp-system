@@ -1,5 +1,7 @@
-com\kw\ebook\entity\vo\BookTest.class
-com\kw\ebook\entity\vo\LoanTest.class
-com\kw\ebook\entity\vo\MemberTest.class
-com\kw\ebook\controller\EbookApiIntegrationTest.class
-com\kw\ebook\service\LoanServiceHandlerTest.class
+com\kw\erp\client\OzonApiClientSmokeTest.class
+com\kw\erp\client\OzonCredentialProviderTest.class
+com\kw\erp\service\impl\ShipmentServiceImplTest.class
+com\kw\erp\service\impl\ProductServiceImplTest.class
+com\kw\erp\exception\ApiErrorContractTest.class
+com\kw\erp\util\JsonUtilsTest.class
+com\kw\erp\client\dto\DtoJsonTest.class

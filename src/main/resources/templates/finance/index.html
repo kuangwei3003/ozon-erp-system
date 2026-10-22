@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('财务与分析', 'finance', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        本页数据不落本地表，每次查询实时调用 Ozon 接口（<span class="mono">/v1/analytics/data</span> 与
+        <span class="mono">/v1/finance/transaction/list</span>）。日期使用 UTC，留空则默认最近 30 天。
+    </div>
+
+    <div class="panel">
+        <h3>经营看板</h3>
+        <div class="filters">
+            <label class="field">开始日期（UTC）<input type="date" id="an-from"></label>
+            <label class="field">结束日期（UTC）<input type="date" id="an-to"></label>
+            <label class="field">维度
+                <select id="an-dim">
+                    <option value="day" selected>按天</option>
+                    <option value="sku">按 SKU</option>
+                    <option value="city">按城市</option>
+                    <option value="delivery_region">按配送地区</option>
+                    <option value="category">按类目</option>
+                </select>
+            </label>
+            <label class="field">最大返回条数
+                <input type="number" id="an-limit" value="60" style="width:110px">
+            </label>
+            <button type="button" id="btn-analytics" onclick="loadAnalytics()">查询看板</button>
+        </div>
+        <div class="filters">
+            <span class="muted">指标：</span>
+            <label class="field" style="flex-direction:row;align-items:center;gap:4px">
+                <input type="checkbox" class="metric" value="money" checked> money（销售额）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:4px">
+                <input type="checkbox" class="metric" value="ordered_products" checked> ordered_products（下单件数）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:4px">
+                <input type="checkbox" class="metric" value="posted"> posted（发货件数）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:4px">
+                <input type="checkbox" class="metric" value="delivered_products"> delivered_products（送达件数）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:4px">
+                <input type="checkbox" class="metric" value="returns"> returns（退货件数）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:4px">
+                <input type="checkbox" class="metric" value="hits_view_search"> 搜索曝光
+            </label>
+        </div>
+        <canvas id="an-chart" class="chartbox"></canvas>
+        <div class="scroll-x">
+            <table class="grid" id="an-table" style="display:none;margin-top:12px">
+                <thead></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="an-empty">尚未查询。</div>
+        <pre class="raw" id="an-raw" style="display:none"></pre>
+    </div>
+
+    <div class="panel">
+        <h3>交易流水</h3>
+        <div class="filters">
+            <label class="field">开始日期（UTC）<input type="date" id="tx-from"></label>
+            <label class="field">结束日期（UTC）<input type="date" id="tx-to"></label>
+            <label class="field">操作类型（逗号分隔，可空）
+                <input type="text" id="tx-types" placeholder="OperationAgentCommission,OperationMarketplaceCommission" style="min-width:280px">
+            </label>
+            <label class="field">页码
+                <input type="number" id="tx-page" value="1" style="width:90px">
+            </label>
+            <label class="field">每页
+                <input type="number" id="tx-size" value="50" style="width:90px">
+            </label>
+            <button type="button" id="btn-tx" onclick="loadTransactions()">查询流水</button>
+        </div>
+        <div class="scroll-x">
+            <table class="grid" id="tx-table" style="display:none">
+                <thead>
+                <tr>
+                    <th class="nowrap">时间</th>
+                    <th>操作类型</th>
+                    <th class="nowrap">金额</th>
+                    <th>商品</th>
+                    <th>订单号</th>
+                    <th>说明</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="empty" id="tx-empty">尚未查询。</div>
+    </div>
+
+    <script th:inline="none">
+        const iso = (id, endOfDay) => {
+            const v = document.getElementById(id).value;
+            if (!v) {
+                return null;
+            }
+            return v + (endOfDay ? 'T23:59:59Z' : 'T00:00:00Z');
+        };
+
+        async function loadAnalytics() {
+            const metrics = Array.from(document.querySelectorAll('.metric:checked')).map(i => i.value);
+            if (metrics.length === 0) {
+                erp.toast('请至少勾选一个指标', 'err');
+                return;
+            }
+            const body = {
+                metrics: metrics,
+                dimensions: [document.getElementById('an-dim').value],
+                limit: Number(document.getElementById('an-limit').value) || 60
+            };
+            const from = iso('an-from', false);
+            const to = iso('an-to', true);
+            if (from || to) {
+                body.filter = {};
+                if (from) {
+                    body.filter.date_from = from;
+                }
+                if (to) {
+                    body.filter.date_to = to;
+                }
+            }
+            const btn = document.getElementById('btn-analytics');
+            await erp.run(btn, '/api/finance/analytics', body, {
+                reload: false,
+                busyText: '查询中…',
+                successText: '看板已更新',
+                render: renderAnalytics
+            });
+        }
+
+        function renderAnalytics(data) {
+            const rows = (data && data.result && data.result.data) || [];
+            const table = document.getElementById('an-table');
+            const thead = table.querySelector('thead tr');
+            const tbody = table.querySelector('tbody');
+            const empty = document.getElementById('an-empty');
+            const raw = document.getElementById('an-raw');
+            tbody.innerHTML = '';
+
+            if (rows.length === 0) {
+                table.style.display = 'none';
+                empty.textContent = '接口未返回数据（可切换维度或扩大时间范围）。';
+                erp.fill('an-raw', data);
+                raw.style.display = '';
+                erp.lineChart(document.getElementById('an-chart'), [], []);
+                return;
+            }
+
+            // 指标列：取首个数据行的 metric_values 键
+            const keys = Object.keys(rows[0].metric_values || rows[0].metrics || {});
+            const headCells = ['时间/维度'].concat(keys);
+            thead.innerHTML = headCells.map(h => '<th>' + erp.escapeHtml(h) + '</th>').join('');
+
+            const labels = [];
+            const firstMetric = [];
+            rows.forEach(row => {
+                const values = row.metric_values || row.metrics || {};
+                const dims = row.dimensions || [];
+                const label = (row.period && (row.period.from || row.period.dt))
+                    || (dims[0] && dims[0].name) || (dims[0] && dims[0].locale_id) || '—';
+                labels.push(String(label).substring(0, 10));
+                const cells = [label];
+                keys.forEach((k, idx) => {
+                    const arr = values[k];
+                    const v = Array.isArray(arr) ? arr.reduce((a, b) => (Number(a) || 0) + (Number(b) || 0), 0) : arr;
+                    cells.push(v == null ? '—' : Number(v).toFixed(2).replace(/\.00$/, ''));
+                    if (idx === 0) {
+                        firstMetric.push(Number(v) || 0);
+                    }
+                });
+                const tr = document.createElement('tr');
+                tr.innerHTML = cells.map((c, i) =>
+                    '<td' + (i === 0 ? '' : ' class="mono"') + '>' + erp.escapeHtml(c) + '</td>').join('');
+                tbody.appendChild(tr);
+            });
+
+            table.style.display = '';
+            empty.textContent = '';
+            raw.style.display = 'none';
+            erp.lineChart(document.getElementById('an-chart'), labels, firstMetric);
+        }
+
+        async function loadTransactions() {
+            const body = {
+                page: Number(document.getElementById('tx-page').value) || 1,
+                page_size: Number(document.getElementById('tx-size').value) || 50,
+                filter: {}
+            };
+            const from = iso('tx-from', false);
+            const to = iso('tx-to', true);
+            if (from) {
+                body.filter.date_from = from;
+            }
+            if (to) {
+                body.filter.date_to = to;
+            }
+            const types = document.getElementById('tx-types').value
+                .split(',').map(s => s.trim()).filter(s => s.length > 0);
+            if (types.length) {
+                body.filter.operation_types = types;
+            }
+            const btn = document.getElementById('btn-tx');
+            await erp.run(btn, '/api/finance/transactions', body, {
+                reload: false,
+                busyText: '查询中…',
+                successText: '流水已更新',
+                render: renderTransactions
+            });
+        }
+
+        function renderTransactions(data) {
+            const result = (data && data.result) || {};
+            const list = result.transactions || [];
+            const tbody = document.querySelector('#tx-table tbody');
+            tbody.innerHTML = '';
+            list.forEach(t => {
+                const postings = (t.postings || []).map(p => p.posting_number).join(', ');
+                const cells = [
+                    t.operation_dt,
+                    t.operation_type,
+                    (t.operation_amount == null ? '—' : t.operation_amount) + ' ₽',
+                    t.item ? (t.item.name || '') + (t.item.offer_id ? ' / ' + t.item.offer_id : '') : '',
+                    postings,
+                    t.comment || ''
+                ];
+                const tr = document.createElement('tr');
+                tr.innerHTML = cells.map((c, i) =>
+                    '<td' + (i === 2 ? ' class="mono nowrap"' : (i === 0 ? ' class="nowrap"' : '')) + '>'
+                    + erp.escapeHtml(c == null || c === '' ? '—' : c) + '</td>').join('');
+                tbody.appendChild(tr);
+            });
+            document.getElementById('tx-table').style.display = list.length ? '' : 'none';
+            document.getElementById('tx-empty').textContent = list.length
+                ? ('共 ' + (result.row_count != null ? result.row_count : list.length) + ' 条，本页 ' + list.length + ' 条')
+                : '该条件下没有交易记录。';
+        }
+    </script>
+</main>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('上传 / 更新商品', 'productUpload', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        提交后 Ozon 会返回导入任务 <span class="mono">task_id</span>，商品数据校验与图片抓取是异步的，可用下方「查询任务状态」确认是否入库成功。
+        价格字段按 Ozon 要求填写，币种默认 <span class="mono">RUB</span>。
+    </div>
+
+    <div class="panel">
+        <h3>基本信息</h3>
+        <div class="form-grid">
+            <label class="field">offer_id *
+                <input type="text" id="f-offer-id" placeholder="卖家商品编号，更新时须与已有商品一致">
+            </label>
+            <label class="field">商品名称 *
+                <input type="text" id="f-name" placeholder="俄语标题">
+            </label>
+            <label class="field">类目 ID（description_category_id）*
+                <input type="number" id="f-category-id" placeholder="如 17028920">
+            </label>
+            <label class="field">类型 ID（type_id）*
+                <input type="number" id="f-type-id" placeholder="如 91952">
+            </label>
+            <label class="field">价格 *
+                <input type="text" id="f-price" placeholder="如 999.90">
+            </label>
+            <label class="field">折扣前原价
+                <input type="text" id="f-old-price" placeholder="可空">
+            </label>
+            <label class="field">最低价
+                <input type="text" id="f-min-price" placeholder="可空">
+            </label>
+            <label class="field">币种
+                <input type="text" id="f-currency" value="RUB">
+            </label>
+            <label class="field">VAT（百分比）
+                <input type="text" id="f-vat" placeholder="如 0 / 10 / 20">
+            </label>
+            <label class="field">关联已有 SKU（合并卡片）
+                <input type="number" id="f-new-sku" placeholder="可空">
+            </label>
+            <label class="field">重量
+                <input type="number" id="f-weight" placeholder="数值">
+            </label>
+            <label class="field">重量单位
+                <select id="f-weight-unit">
+                    <option value="g">g</option>
+                    <option value="kg">kg</option>
+                    <option value="lb">lb</option>
+                </select>
+            </label>
+            <label class="field">长 depth
+                <input type="number" id="f-depth" placeholder="数值">
+            </label>
+            <label class="field">宽 width
+                <input type="number" id="f-width" placeholder="数值">
+            </label>
+            <label class="field">高 height
+                <input type="number" id="f-height" placeholder="数值">
+            </label>
+            <label class="field">尺寸单位
+                <select id="f-dimension-unit">
+                    <option value="mm">mm</option>
+                    <option value="cm">cm</option>
+                    <option value="m">m</option>
+                </select>
+            </label>
+            <label class="field">条码
+                <input type="text" id="f-barcode" placeholder="多个用英文逗号分隔，可空">
+            </label>
+        </div>
+        <div class="filters" style="margin-top:12px">
+            <label class="field" style="flex-direction:row;align-items:center;gap:6px">
+                <input type="checkbox" id="f-free"> 免费商品（is_free）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:6px">
+                <input type="checkbox" id="f-vendor"> 品牌卖家（vendor）
+            </label>
+            <label class="field" style="flex-direction:row;align-items:center;gap:6px">
+                <input type="checkbox" id="f-autobarcode"> 自动生成条码
+            </label>
+        </div>
+        <label class="field" style="margin-top:6px">图片 URL（每行一个）
+            <textarea id="f-images" rows="4" placeholder="https://..."></textarea>
+        </label>
+    </div>
+
+    <div class="panel">
+        <h3>属性与特征（按类目模板填写）</h3>
+        <div class="filters">
+            <button type="button" id="btn-template" onclick="loadTemplate()">加载类目属性模板</button>
+            <span class="muted">需要先从「属性与特征」菜单查询到 category_id / type_id；字典属性请填写 dictionary_value_id；品牌等属性也在下方模板中填写。</span>
+        </div>
+        <table class="grid" id="attr-table" style="display:none">
+            <thead>
+            <tr>
+                <th style="width:46px">填写</th>
+                <th style="width:110px">属性 ID</th>
+                <th>名称</th>
+                <th style="width:90px">字典</th>
+                <th style="width:280px">文本值</th>
+                <th style="width:180px">字典值 ID</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <div class="empty" id="attr-empty">尚未加载属性模板。</div>
+    </div>
+
+    <div class="panel">
+        <h3>提交与任务状态</h3>
+        <div class="filters">
+            <button type="button" id="btn-import" onclick="submitImport()">上传 / 更新商品</button>
+            <button type="button" id="btn-status" onclick="queryStatus()" disabled>查询任务状态</button>
+        </div>
+        <pre class="raw" id="import-result">（暂无结果）</pre>
+    </div>
+
+    <script th:inline="none">
+        let importTaskId = null;
+
+        const val = (id) => document.getElementById(id).value.trim();
+        const num = (id) => {
+            const v = val(id);
+            return v === '' ? null : Number(v);
+        };
+        const list = (id, sep) => {
+            const v = document.getElementById(id).value;
+            return v.split(sep || ',').map(s => s.trim()).filter(s => s.length > 0);
+        };
+
+        function collectAttributes() {
+            const items = [];
+            document.querySelectorAll('#attr-table tbody tr').forEach(tr => {
+                const check = tr.querySelector('.use');
+                if (!check || !check.checked) {
+                    return;
+                }
+                const id = Number(tr.dataset.attrId);
+                const text = tr.querySelector('.txt').value.trim();
+                const dict = tr.querySelector('.dict').value.trim();
+                if (text === '' && dict === '') {
+                    return;
+                }
+                const value = {};
+                if (text !== '') {
+                    value.value = text;
+                }
+                if (dict !== '') {
+                    value.dictionary_value_id = Number(dict);
+                }
+                items.push({id: id, complex_id: 0, values: [value]});
+            });
+            return items;
+        }
+
+        function buildItem() {
+            const item = {
+                offer_id: val('f-offer-id'),
+                name: val('f-name'),
+                category_id: num('f-category-id'),
+                type_id: num('f-type-id'),
+                price: val('f-price'),
+                currency_code: val('f-currency') || 'RUB',
+                attributes: collectAttributes()
+            };
+            if (val('f-old-price')) {
+                item.old_price = val('f-old-price');
+            }
+            if (val('f-min-price')) {
+                item.min_price = val('f-min-price');
+            }
+            if (val('f-vat')) {
+                item.vat = val('f-vat');
+            }
+            if (num('f-new-sku')) {
+                item.new_sku = num('f-new-sku');
+            }
+            if (num('f-weight') != null) {
+                item.weight = num('f-weight');
+                item.weight_unit = val('f-weight-unit');
+            }
+            if (num('f-depth') != null && num('f-width') != null && num('f-height') != null) {
+                item.depth = num('f-depth');
+                item.width = num('f-width');
+                item.height = num('f-height');
+                item.dimension_unit = val('f-dimension-unit');
+            }
+            const barcodes = list('f-barcode');
+            if (barcodes.length) {
+                item.barcode = barcodes;
+            }
+            const images = list('f-images', '\n');
+            if (images.length) {
+                item.images = images;
+            }
+            item.is_free = document.getElementById('f-free').checked;
+            item.vendor = document.getElementById('f-vendor').checked;
+            item.auto_barcodes_generate = document.getElementById('f-autobarcode').checked;
+            return item;
+        }
+
+        async function loadTemplate() {
+            const categoryId = num('f-category-id');
+            const typeId = num('f-type-id');
+            if (!categoryId || !typeId) {
+                erp.toast('请先填写类目 ID 与类型 ID', 'err');
+                return;
+            }
+            const btn = document.getElementById('btn-template');
+            btn.disabled = true;
+            try {
+                const data = await erp.get('/api/attributes/category/' + categoryId + '/' + typeId);
+                const attrs = (data && data.result) || [];
+                renderTemplate(attrs);
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function renderTemplate(attrs) {
+            const tbody = document.querySelector('#attr-table tbody');
+            tbody.innerHTML = '';
+            attrs.forEach(a => {
+                const tr = document.createElement('tr');
+                tr.dataset.attrId = a.id;
+                const required = a.is_required ? ' <span class="badge bad">必填</span>' : '';
+                const dict = a.is_dictionary ? '是' : '否';
+                tr.innerHTML =
+                    '<td><input type="checkbox" class="use"' + (a.is_required ? ' checked' : '') + '></td>' +
+                    '<td class="mono">' + erp.escapeHtml(a.id) + '</td>' +
+                    '<td>' + erp.escapeHtml(a.name || '') + required + '</td>' +
+                    '<td>' + dict + '</td>' +
+                    '<td><input type="text" class="txt" style="width:100%" placeholder="' +
+                    erp.escapeHtml(a.type || '') + '"></td>' +
+                    '<td><input type="text" class="dict" style="width:100%" placeholder="字典属性必填"></td>';
+                tbody.appendChild(tr);
+            });
+            document.getElementById('attr-empty').style.display = attrs.length ? 'none' : 'block';
+            document.getElementById('attr-empty').textContent =
+                attrs.length ? '' : '该类目未返回属性模板。';
+            document.getElementById('attr-table').style.display = attrs.length ? '' : 'none';
+        }
+
+        async function submitImport() {
+            const item = buildItem();
+            if (!item.offer_id || !item.name || !item.category_id || !item.type_id || !item.price) {
+                erp.toast('offer_id / 名称 / 类目 ID / 类型 ID / 价格为必填项', 'err');
+                return;
+            }
+            const btn = document.getElementById('btn-import');
+            btn.disabled = true;
+            btn.textContent = '提交中…';
+            try {
+                const data = await erp.post('/api/products/import', {items: [item]});
+                document.getElementById('import-result').textContent = JSON.stringify(data, null, 2);
+                const taskId = data && data.result && data.result.task_id;
+                if (taskId) {
+                    importTaskId = taskId;
+                    document.getElementById('btn-status').disabled = false;
+                    erp.toast('提交成功，task_id = ' + taskId, 'ok');
+                } else {
+                    erp.toast('接口已返回，但未解析到 task_id', 'err');
+                }
+            } catch (e) {
+                document.getElementById('import-result').textContent = e.message;
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '上传 / 更新商品';
+            }
+        }
+
+        async function queryStatus() {
+            if (!importTaskId) {
+                return;
+            }
+            const btn = document.getElementById('btn-status');
+            btn.disabled = true;
+            btn.textContent = '查询中…';
+            try {
+                const data = await erp.get('/api/products/import/status/' + importTaskId);
+                document.getElementById('import-result').textContent = JSON.stringify(data, null, 2);
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '查询任务状态';
+            }
+        }
+    </script>
+</main>
+</body>
+</html>

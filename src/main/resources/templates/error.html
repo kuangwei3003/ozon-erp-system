@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>出错了 · Ozon 店铺管理 ERP</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body style="background:var(--bg)">
+<div style="max-width:720px;margin:80px auto;padding:0 20px">
+    <div class="panel">
+        <h2 style="margin-bottom:6px">页面出错了</h2>
+        <table class="kv">
+            <tr>
+                <th>状态码</th>
+                <td class="mono" th:text="${status} ?: '—'"></td>
+            </tr>
+            <tr>
+                <th>错误类型</th>
+                <td class="mono" th:text="${error} ?: '—'"></td>
+            </tr>
+            <tr>
+                <th>详细信息</th>
+                <td th:text="${message} ?: '无'"></td>
+            </tr>
+            <tr>
+                <th>时间</th>
+                <td class="mono" th:text="${timestamp} ?: '—'"></td>
+            </tr>
+        </table>
+        <div class="row-actions" style="margin-top:12px">
+            <a class="btn" th:href="@{/}">返回仪表盘</a>
+            <a class="btn ghost" href="javascript:history.back()">返回上一页</a>
+        </div>
+    </div>
+    <p class="muted" style="text-align:center">
+        如果是访问接口时出现的错误，通常是 Ozon 密钥未配置或调用超限，请检查「店铺设置」与应用日志。
+    </p>
+</div>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('价格与库存', 'priceStock', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        价格按 Ozon 原样字符串提交（如 <span class="mono">999.90</span>），库存需要一个 <span class="mono">warehouse_id</span>；
+        若列表里仓库为空，请先在「运单处理」确认仓库，或重新「从 Ozon 同步」以获取最新仓库信息。
+    </div>
+
+    <div class="panel">
+        <form class="filters" method="get" th:action="@{/price-stock}">
+            <input type="text" name="keyword" placeholder="offer_id / SKU / 仓库名" th:value="${keyword}">
+            <button type="submit" class="ghost">筛选</button>
+            <span style="flex:1"></span>
+            <button type="button" id="btn-sync" onclick="syncPriceStock()">从 Ozon 同步</button>
+        </form>
+
+        <table class="grid" th:if="${!page.records.isEmpty()}">
+            <thead>
+            <tr>
+                <th>SKU</th>
+                <th>offer_id</th>
+                <th>仓库</th>
+                <th>价格</th>
+                <th>原价</th>
+                <th>最低价</th>
+                <th>操作</th>
+                <th>库存</th>
+                <th>预留</th>
+                <th class="nowrap">同步时间</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="r : ${page.records}"
+                th:data-sku="${r.sku}"
+                th:data-offer="${r.offerId}"
+                th:data-warehouse="${r.warehouseId}"
+                th:data-currency="${r.currencyCode}">
+                <td class="mono" th:text="${r.sku}"></td>
+                <td class="mono" th:text="${r.offerId}"></td>
+                <td>
+                    <span th:text="${r.warehouseName != null} ? ${r.warehouseName} : '—'"></span>
+                    <span class="muted mono" th:if="${r.warehouseId != null}" th:text="'#' + ${r.warehouseId}"></span>
+                </td>
+                <td>
+                    <input type="text" class="in-price" th:value="${r.price}" style="width:96px">
+                    <div class="muted" th:if="${r.marketPrice != null}"
+                         th:text="'平台价 ' + ${r.marketPrice}"></div>
+                </td>
+                <td><input type="text" class="in-old" th:value="${r.oldPrice}" style="width:96px"></td>
+                <td><input type="text" class="in-min" th:value="${r.minPrice}" style="width:96px"></td>
+                <td>
+                    <div class="row-actions">
+                        <button type="button" class="ghost" onclick="savePrice(this)">保存价格</button>
+                        <button type="button" class="ghost" onclick="saveStock(this)">保存库存</button>
+                    </div>
+                    <div class="muted" th:if="${r.priceIndex != null}" th:text="${r.priceIndex}"></div>
+                </td>
+                <td><input type="number" class="in-stock" th:value="${r.stock}" style="width:86px"></td>
+                <td th:text="${r.reserved}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${r.syncedAt})}"></td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${page.records.isEmpty()}">
+            暂无价格库存快照，请点击「从 Ozon 同步」。
+        </div>
+
+        <div th:with="q=${keyword != null and !keyword.isEmpty() ? '&keyword=' + #uris.escapeQueryParam(keyword) : ''}">
+            <div th:replace="~{fragments/snippets :: pager(${page}, '/price-stock', ${q})}"></div>
+        </div>
+    </div>
+
+    <script th:inline="none">
+        function rowOf(button) {
+            return button.closest('tr');
+        }
+
+        async function syncPriceStock() {
+            await erp.run(document.getElementById('btn-sync'), '/api/price-stock/sync');
+        }
+
+        async function savePrice(button) {
+            const tr = rowOf(button);
+            const item = {
+                offer_id: tr.dataset.offer,
+                price: tr.querySelector('.in-price').value.trim(),
+                currency_code: tr.dataset.currency || 'RUB'
+            };
+            const oldPrice = tr.querySelector('.in-old').value.trim();
+            const minPrice = tr.querySelector('.in-min').value.trim();
+            if (oldPrice) {
+                item.old_price = oldPrice;
+            }
+            if (minPrice) {
+                item.min_price = minPrice;
+            }
+            if (!item.offer_id || !item.price) {
+                erp.toast('offer_id 与价格不能为空', 'err');
+                return;
+            }
+            await erp.run(button, '/api/price-stock/prices', {prices: [item]},
+                {successText: '价格已提交，同步后显示最新值', busyText: '提交中…', reload: false});
+        }
+
+        async function saveStock(button) {
+            const tr = rowOf(button);
+            const stock = tr.querySelector('.in-stock').value.trim();
+            if (!tr.dataset.warehouse) {
+                erp.toast('该记录缺少仓库 ID，无法更新库存', 'err');
+                return;
+            }
+            const item = {
+                sku: Number(tr.dataset.sku),
+                warehouse_id: Number(tr.dataset.warehouse),
+                stock: Number(stock)
+            };
+            if (tr.dataset.offer) {
+                item.offer_id = tr.dataset.offer;
+            }
+            await erp.run(button, '/api/price-stock/stocks', {stocks: [item]},
+                {successText: '库存已提交，同步后显示最新值', busyText: '提交中…', reload: false});
+        }
+    </script>
+</main>
+</body>
+</html>

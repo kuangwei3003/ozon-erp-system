@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('聊天管理', 'chats', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        聊天室列表来自本地表：先「同步聊天室」，再进入会话「同步消息」才能看到消息内容（Ozon 消息接口按会话逐个拉取）。
+    </div>
+
+    <div class="panel">
+        <div class="filters">
+            <div class="tabs">
+                <a class="btn ghost" th:href="@{/chats}" th:classappend="${filter == null or filter.isEmpty()} ? 'active' : 'ghost'">全部</a>
+                <a class="btn ghost" th:href="@{/chats(filter='unread')}" th:classappend="${filter == 'unread'} ? 'active' : 'ghost'">仅未读</a>
+                <a class="btn ghost" th:href="@{/chats(filter='closed')}" th:classappend="${filter == 'closed'} ? 'active' : 'ghost'">已关闭</a>
+            </div>
+            <span style="flex:1"></span>
+            <span class="muted">共 <b th:text="${#lists.size(rooms)}">0</b> 个会话</span>
+            <button type="button" id="btn-sync" onclick="syncRooms()">同步聊天室</button>
+        </div>
+
+        <table class="grid" th:if="${!rooms.isEmpty()}">
+            <thead>
+            <tr>
+                <th>会话</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>未读</th>
+                <th>最后一条消息</th>
+                <th class="nowrap">更新时间</th>
+                <th class="nowrap">同步时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="r : ${rooms}">
+                <td class="mono" th:text="${r.chatId}"></td>
+                <td><span class="badge" th:text="${r.chatType != null} ? ${r.chatType} : '—'"></span></td>
+                <td>
+                    <span class="badge"
+                          th:classappend="${r.chatStatus == 'open'} ? 'ok' : (${r.chatStatus == 'closed'} ? '' : 'warn')"
+                          th:text="${r.chatStatus != null} ? ${r.chatStatus} : '—'"></span>
+                </td>
+                <td>
+                    <span class="badge bad" th:if="${r.unread != null and r.unread > 0}" th:text="${r.unread}"></span>
+                    <span class="muted" th:if="${r.unread == null or r.unread == 0}">0</span>
+                </td>
+                <td th:text="${r.lastMessage != null} ? ${r.lastMessage} : '（尚未同步消息）'"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${r.updatedTs})}"></td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${r.syncedAt})}"></td>
+                <td>
+                    <div class="row-actions">
+                        <a class="btn" th:href="@{'/chats/' + ${r.chatId}}">进入会话</a>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${rooms.isEmpty()}">
+            暂无聊天室数据，请点击「同步聊天室」。
+        </div>
+    </div>
+
+    <script th:inline="none">
+        async function syncRooms() {
+            await erp.run(document.getElementById('btn-sync'), '/api/chats/sync');
+        }
+    </script>
+</main>
+</body>
+</html>

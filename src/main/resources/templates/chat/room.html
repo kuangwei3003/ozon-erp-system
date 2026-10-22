@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('会话详情', 'chats', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="split">
+        <div class="panel">
+            <div class="filters">
+                <h3 style="margin:0;flex:1">会话列表</h3>
+                <a class="btn ghost" th:href="@{/chats}">筛选</a>
+                <button type="button" id="btn-sync-rooms" onclick="syncRooms()">同步会话</button>
+            </div>
+            <div class="room-list" th:if="${!rooms.isEmpty()}">
+                <a th:each="r : ${rooms}"
+                   th:href="@{'/chats/' + ${r.chatId}}"
+                   th:classappend="${r.chatId == chatId} ? 'active' : ''">
+                    <div class="title">
+                        <span class="mono" th:text="${r.chatId}"></span>
+                        <span class="badge bad" th:if="${r.unread != null and r.unread > 0}" th:text="${r.unread}"></span>
+                        <span class="badge" th:if="${r.chatStatus == 'closed'}">已关闭</span>
+                    </div>
+                    <div class="sub" th:text="${r.lastMessage != null} ? ${r.lastMessage} : '（无消息摘要）'"></div>
+                </a>
+            </div>
+            <div class="empty" th:if="${rooms.isEmpty()}">还没有聊天室，请先在「聊天管理」同步。</div>
+        </div>
+
+        <div class="panel">
+            <div class="filters">
+                <h3 style="margin:0;flex:1">
+                    消息记录
+                    <span class="muted mono" th:text="${chatId}"></span>
+                </h3>
+                <button type="button" id="btn-sync-msg" onclick="syncMessages()">同步消息</button>
+            </div>
+
+            <div class="chat-list" id="chat-list">
+                <div class="chat-msg" th:each="m : ${messages}"
+                     th:classappend="${m.sender == 'seller'} ? 'seller' : ''">
+                    <div class="who">
+                        <span th:text="${m.sender == 'seller'} ? '卖家' : (${m.sender == null} ? '买家' : '买家')"></span>
+                        <span class="mono" th:if="${m.userId != null}" th:text="'user_id=' + ${m.userId}"></span>
+                        ·
+                        <span th:insert="~{fragments/snippets :: dt(${m.createdDt})}"></span>
+                        <span class="badge" th:if="${m.status != null}" th:text="${m.status}"></span>
+                    </div>
+                    <div th:text="${m.content != null} ? ${m.content} : '（非文本消息）'"></div>
+                </div>
+                <div class="empty" th:if="${messages.isEmpty()}">本地暂无消息，请点击「同步消息」。</div>
+            </div>
+
+            <div class="filters" style="margin-top:14px;margin-bottom:0">
+                <textarea id="msg-text" rows="2" style="flex:1;min-width:260px" placeholder="输入回复内容，Ctrl+Enter 发送"></textarea>
+                <button type="button" id="btn-send" onclick="sendMessage()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        const CHAT_ID = /*[[${chatId}]]*/ '';
+
+        async function syncRooms() {
+            await erp.run(document.getElementById('btn-sync-rooms'), '/api/chats/sync');
+        }
+
+        async function syncMessages() {
+            await erp.run(document.getElementById('btn-sync-msg'), '/api/chats/' + encodeURIComponent(CHAT_ID) + '/sync');
+        }
+
+        function appendMessage(text, isSeller) {
+            const list = document.getElementById('chat-list');
+            const empty = list.querySelector('.empty');
+            if (empty) {
+                empty.remove();
+            }
+            const div = document.createElement('div');
+            div.className = isSeller ? 'chat-msg seller' : 'chat-msg';
+            const now = new Date().toLocaleString('zh-CN', {hour12: false}).replace(/\//g, '-');
+            div.innerHTML = '<div class="who">' + (isSeller ? '卖家' : '买家') + ' · ' + erp.escapeHtml(now) + '</div>'
+                + '<div>' + erp.escapeHtml(text) + '</div>';
+            list.appendChild(div);
+            list.scrollTop = list.scrollHeight;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('msg-text');
+            const text = input.value.trim();
+            if (!text) {
+                erp.toast('请输入消息内容', 'err');
+                return;
+            }
+            const btn = document.getElementById('btn-send');
+            btn.disabled = true;
+            btn.textContent = '发送中…';
+            try {
+                await erp.post('/api/chats/send', {chat_id: CHAT_ID, text: text, message_type: 'USER_DEFINED'});
+                input.value = '';
+                appendMessage(text, true);
+                erp.toast('已发送（发送方为店铺账号）', 'ok');
+            } catch (e) {
+                erp.toast(e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '发送';
+            }
+        }
+
+        document.getElementById('msg-text').addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        const list = document.getElementById('chat-list');
+        list.scrollTop = list.scrollHeight;
+    </script>
+</main>
+</body>
+</html>

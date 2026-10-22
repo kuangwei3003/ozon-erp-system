@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      th:replace="~{layout :: layout('店铺设置', 'settings', ~{::main})}">
+<body>
+<main th:fragment>
+    <div class="notice">
+        凭证优先级：<span class="mono">application.yml</span>（或环境变量 <span class="mono">OZON_CLIENT_ID</span> /
+        <span class="mono">OZON_API_KEY</span>）&gt; 本页面中「启用」状态的首个店铺。列表中的 Api-Key 已脱敏，保存时保持脱敏值即不会覆盖原密钥。
+    </div>
+
+    <div class="panel">
+        <div class="filters">
+            <h3 style="margin:0;flex:1">已配置店铺</h3>
+            <span class="badge" th:classappend="${ozonReady} ? 'ok' : 'bad'"
+                  th:text="${ozonReady} ? '密钥已就绪' : '密钥未配置'"></span>
+            <button type="button" class="ghost" id="btn-test" onclick="testConnection()">连通性测试</button>
+        </div>
+        <table class="grid" th:if="${!shops.isEmpty()}">
+            <thead>
+            <tr>
+                <th>ID</th>
+                <th>店铺名称</th>
+                <th>Client-Id</th>
+                <th>Api-Key</th>
+                <th>状态</th>
+                <th class="nowrap">更新时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="s : ${shops}"
+                th:data-id="${s.id}"
+                th:data-name="${s.shopName}"
+                th:data-client="${s.clientId}"
+                th:data-key="${s.apiKey}"
+                th:data-enabled="${s.enabled}">
+                <td th:text="${s.id}"></td>
+                <td th:text="${s.shopName}"></td>
+                <td class="mono" th:text="${s.clientId}"></td>
+                <td class="mono" th:text="${s.apiKey}"></td>
+                <td>
+                    <span class="badge" th:classappend="${s.enabled != null and s.enabled == 1} ? 'ok' : 'warn'"
+                          th:text="${s.enabled != null and s.enabled == 1} ? '启用' : '停用'"></span>
+                </td>
+                <td class="nowrap" th:insert="~{fragments/snippets :: dt(${s.updatedAt})}"></td>
+                <td>
+                    <div class="row-actions">
+                        <button type="button" class="ghost" onclick="fillForm(this)">编辑</button>
+                        <button type="button" class="ghost" onclick="toggleEnabled(this)"
+                                th:text="${s.enabled != null and s.enabled == 1} ? '停用' : '启用'"></button>
+                        <button type="button" class="danger" onclick="removeShop(this)">删除</button>
+                    </div>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+        <div class="empty" th:if="${shops.isEmpty()}">尚未添加店铺。若已在配置文件中填写密钥，可直接使用配置文件方式。</div>
+    </div>
+
+    <div class="panel">
+        <h3 id="form-title">新增 / 更新店铺</h3>
+        <input type="hidden" id="s-id">
+        <div class="form-grid">
+            <label class="field">店铺名称 *
+                <input type="text" id="s-name" placeholder="例如 我的 Ozon 旗舰店">
+            </label>
+            <label class="field">Client-Id *
+                <input type="text" id="s-client" placeholder="Ozon 卖家后台的 Client-Id">
+            </label>
+            <label class="field">Api-Key *
+                <input type="text" id="s-key" placeholder="Ozon 卖家后台生成的 Api-Key">
+            </label>
+            <label class="field">状态
+                <select id="s-enabled">
+                    <option value="1">启用</option>
+                    <option value="0">停用</option>
+                </select>
+            </label>
+        </div>
+        <div class="filters" style="margin-top:12px">
+            <button type="button" id="btn-save" onclick="saveShop()">保存</button>
+            <button type="button" class="ghost" onclick="resetForm()">清空表单</button>
+        </div>
+    </div>
+
+    <script th:inline="none">
+        const el = (id) => document.getElementById(id);
+
+        function resetForm() {
+            el('s-id').value = '';
+            el('s-name').value = '';
+            el('s-client').value = '';
+            el('s-key').value = '';
+            el('s-enabled').value = '1';
+            el('form-title').textContent = '新增 / 更新店铺';
+        }
+
+        function fillForm(button) {
+            const tr = button.closest('tr');
+            el('s-id').value = tr.dataset.id;
+            el('s-name').value = tr.dataset.name || '';
+            el('s-client').value = tr.dataset.client || '';
+            el('s-key').value = tr.dataset.key || '';
+            el('s-enabled').value = tr.dataset.enabled === '0' ? '0' : '1';
+            el('form-title').textContent = '编辑店铺 #' + tr.dataset.id + '（Api-Key 为脱敏值，若不修改请保持原样）';
+            window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});
+        }
+
+        async function saveShop() {
+            const body = {
+                shop_name: el('s-name').value.trim(),
+                client_id: el('s-client').value.trim(),
+                api_key: el('s-key').value.trim(),
+                enabled: Number(el('s-enabled').value)
+            };
+            if (!body.shop_name || !body.client_id || !body.api_key) {
+                erp.toast('店铺名称、Client-Id、Api-Key 均为必填', 'err');
+                return;
+            }
+            const id = el('s-id').value;
+            if (id) {
+                body.id = Number(id);
+            }
+            await erp.run(el('btn-save'), '/api/shops', body, {
+                successText: id ? '店铺已更新' : '店铺已新增',
+                busyText: '保存中…'
+            });
+        }
+
+        async function toggleEnabled(button) {
+            const tr = button.closest('tr');
+            const body = {
+                id: Number(tr.dataset.id),
+                shop_name: tr.dataset.name,
+                client_id: tr.dataset.client,
+                api_key: tr.dataset.key,
+                enabled: tr.dataset.enabled === '1' ? 0 : 1
+            };
+            await erp.run(button, '/api/shops', body, {busyText: '处理中…'});
+        }
+
+        async function removeShop(button) {
+            const tr = button.closest('tr');
+            if (!confirm('确认删除店铺「' + tr.dataset.name + '」？')) {
+                return;
+            }
+            button.disabled = true;
+            try {
+                await erp.request('/api/shops/' + tr.dataset.id, {method: 'DELETE'});
+                erp.toast('已删除', 'ok');
+                setTimeout(() => location.reload(), 600);
+            } catch (e) {
+                erp.toast(e.message, 'err');
+                button.disabled = false;
+            }
+        }
+
+        async function testConnection() {
+            const btn = el('btn-test');
+            btn.disabled = true;
+            btn.textContent = '测试中…';
+            try {
+                const info = await erp.post('/api/shops/test');
+                erp.toast('连接正常：' + info, 'ok');
+            } catch (e) {
+                erp.toast('测试失败：' + e.message, 'err');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '连通性测试';
+            }
+        }
+    </script>
+</main>
+</body>
+</html>
